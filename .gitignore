@@ -1,0 +1,15 @@
+# banco gerado pelo ETL — não versionar
+cambio.db
+cambio.db-journal
+
+# saída do exportador CSV
+saida/
+
+# Python
+__pycache__/
+*.pyc
+
+# sistema
+.DS_Store
+Thumbs.db
+desktop.ini

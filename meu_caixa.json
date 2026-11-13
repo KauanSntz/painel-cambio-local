@@ -1,0 +1,88 @@
+{
+ "versao": 1,
+ "config": {
+  "reaisPorMilhaoGold": 0.9
+ },
+ "lancamentos": [
+  {
+   "id": "lan-001",
+   "tipo": "ajuste_inicial",
+   "data": "2026-08-01T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "Saldo inicial de demonstração",
+   "quantidadeDiamantes": 0,
+   "quantidadeGold": 5000000
+  },
+  {
+   "id": "lan-002",
+   "tipo": "compra_diamantes",
+   "data": "2026-08-03T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "Lote 1",
+   "quantidadeDiamantes": 100,
+   "valorReais": 30.0
+  },
+  {
+   "id": "lan-003",
+   "tipo": "compra_diamantes",
+   "data": "2026-08-06T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "Lote 2",
+   "quantidadeDiamantes": 150,
+   "valorReais": 42.0
+  },
+  {
+   "id": "lan-004",
+   "tipo": "venda_diamantes_gold",
+   "data": "2026-08-09T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "",
+   "quantidadeDiamantesVendidas": 120,
+   "quantidadeGoldRecebida": 45000000
+  },
+  {
+   "id": "lan-005",
+   "tipo": "compra_diamantes",
+   "data": "2026-08-12T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "Lote 3",
+   "quantidadeDiamantes": 200,
+   "valorReais": 50.0
+  },
+  {
+   "id": "lan-006",
+   "tipo": "uso_diamantes",
+   "data": "2026-08-14T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "Itens de evento",
+   "quantidadeDiamantes": 20
+  },
+  {
+   "id": "lan-007",
+   "tipo": "venda_diamantes_gold",
+   "data": "2026-08-16T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "",
+   "quantidadeDiamantesVendidas": 180,
+   "quantidadeGoldRecebida": 70000000
+  },
+  {
+   "id": "lan-008",
+   "tipo": "conversao_gold_reais",
+   "data": "2026-08-18T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "",
+   "quantidadeGold": 20000000,
+   "valorReais": 18.0
+  },
+  {
+   "id": "lan-009",
+   "tipo": "saldo_atual",
+   "data": "2026-08-20T12:00:00.000Z",
+   "origem": "manual",
+   "observacao": "Saldo conferido no jogo",
+   "quantidadeDiamantes": 130,
+   "quantidadeGold": 100000000
+  }
+ ]
+}

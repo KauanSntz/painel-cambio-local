@@ -1,0 +1,1444 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Câmbio — painel de mercado</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
+    .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+    .card { transition: transform 0.2s, box-shadow 0.2s; }
+    .card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.3); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .badge-buy { background: #10b981; color: #fff; }
+    .badge-sell { background: #ef4444; color: #fff; }
+    .badge-best { background: #fbbf24; color: #000; }
+    .tab-active { background: #3b82f6; color: #fff; }
+    .tab-inactive { background: rgba(255,255,255,0.05); color: #9ca3af; }
+    .tab-inactive:hover { background: rgba(255,255,255,0.1); }
+    input[type=number] { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; }
+    input[type=number]:focus { outline: none; border-color: #3b82f6; }
+    .table-row:hover { background: rgba(255,255,255,0.05); }
+    select { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; }
+  </style>
+</head>
+<body class="text-gray-100 min-h-screen">
+  <div class="container mx-auto px-4 py-6 max-w-7xl">
+    <!-- Header -->
+    <header class="mb-6 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+          Câmbio — painel de mercado
+        </h1>
+        <p class="text-gray-400 text-sm mt-1">Dashboard de análise de diamantes e gold</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <div id="statusDot" class="w-3 h-3 rounded-full bg-gray-500"></div>
+        <span id="statusText" class="text-sm text-gray-400">Carregando...</span>
+        <button id="btnRefresh" class="ml-2 bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition">
+          Atualizar
+        </button>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <div class="flex gap-2 mb-6">
+      <button class="tab tab-active px-4 py-2 rounded-lg text-sm font-medium transition" data-tab="overview">Visão Geral</button>
+      <button class="tab tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition" data-tab="calc">Calculadora</button>
+      <button class="tab tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition" data-tab="caixa">Meu caixa</button>
+    </div>
+
+    <!-- ===== TAB: Visão Geral ===== -->
+    <div id="tab-overview" class="tab-content">
+      <!-- KPIs -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="glass card rounded-xl p-4">
+          <div class="text-gray-400 text-xs">Menor cotação · Comprar</div>
+          <div class="text-xl font-bold text-green-400 mt-1" id="kpiBuy">—</div>
+          <div class="text-xs text-gray-500">ouro/diamante</div>
+        </div>
+        <div class="glass card rounded-xl p-4">
+          <div class="text-gray-400 text-xs">Maior cotação · Vender</div>
+          <div class="text-xl font-bold text-red-400 mt-1" id="kpiSell">—</div>
+          <div class="text-xs text-gray-500">ouro/diamante</div>
+        </div>
+        <div class="glass card rounded-xl p-4">
+          <div class="text-gray-400 text-xs">Spread</div>
+          <div class="text-xl font-bold text-yellow-400 mt-1" id="kpiSpread">—</div>
+          <div class="text-xs text-gray-500" id="kpiSpreadHint">ouro/diamante</div>
+        </div>
+        <div class="glass card rounded-xl p-4">
+          <div class="text-gray-400 text-xs">Ofertas coletadas</div>
+          <div class="text-xl font-bold text-blue-400 mt-1" id="kpiCount">—</div>
+          <div class="text-xs text-gray-500">comprar + vender</div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div class="glass rounded-xl p-4">
+          <h3 class="text-sm font-semibold mb-2 text-gray-300">Distribuição (comprar)</h3>
+          <canvas id="chartBuy" height="160"></canvas>
+        </div>
+        <div class="glass rounded-xl p-4">
+          <h3 class="text-sm font-semibold mb-2 text-gray-300">Distribuição (vender)</h3>
+          <canvas id="chartSell" height="160"></canvas>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        <section class="glass rounded-xl p-4 lg:col-span-1">
+          <h3 class="text-sm font-semibold mb-1 text-gray-300">Ofertas que atendem aos filtros</h3>
+          <p class="text-xs text-gray-500 mb-3">Filtra anúncios pela cotação e quantidade disponível.</p>
+          <div class="grid grid-cols-2 gap-2 mb-3">
+            <label class="text-xs text-gray-400">Tipo de anúncio
+              <select id="oppSide" class="w-full mt-1 px-2 py-2 rounded-lg"><option value="comprar">Comprar</option><option value="vender">Vender</option></select>
+            </label>
+            <label class="text-xs text-gray-400">Cotação máxima
+              <input id="oppMaxRate" type="number" value="350000" class="w-full mt-1 px-2 py-2 rounded-lg">
+            </label>
+            <label class="text-xs text-gray-400">Mínimo de diamantes
+              <input id="oppMinQty" type="number" min="1" value="1" class="w-full mt-1 px-2 py-2 rounded-lg">
+            </label>
+            <button id="btnNotifications" class="self-end px-2 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs">Ativar alertas</button>
+          </div>
+          <div id="opportunityList" class="space-y-2 text-sm"></div>
+          <p class="text-xs text-gray-500 mt-3">É um filtro de anúncios; lucro depende do preço de aquisição, conversão e taxas que você informar na calculadora.</p>
+        </section>
+        <section class="glass rounded-xl p-4 lg:col-span-2">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-semibold text-gray-300">Histórico de cotações</h3>
+            <span id="historyInfo" class="text-xs text-gray-500">Aguardando primeiras coletas</span>
+          </div>
+          <canvas id="chartHistory" height="125"></canvas>
+        </section>
+      </div>
+
+      <!-- Filters + Table -->
+      <div class="glass rounded-xl p-4">
+        <div class="flex flex-wrap gap-2 mb-3 items-center">
+          <input id="searchInput" type="text" placeholder="Buscar vendedor..." class="px-3 py-1.5 rounded-lg text-sm w-40">
+          <select id="filterSide" class="px-3 py-1.5 rounded-lg text-sm">
+            <option value="all">Todos</option>
+            <option value="comprar">Comprar</option>
+            <option value="vender">Vender</option>
+          </select>
+          <select id="sortBy" class="px-3 py-1.5 rounded-lg text-sm">
+            <option value="taxa-asc">Cotação ↑</option>
+            <option value="taxa-desc">Cotação ↓</option>
+            <option value="recebe-desc">Volume ↓</option>
+          </select>
+          <span id="resultCount" class="text-sm text-gray-400 ml-auto"></span>
+        </div>
+        <div class="overflow-x-auto max-h-80">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-800/50 sticky top-0">
+              <tr>
+                <th class="px-3 py-2 text-left">Lado</th>
+                <th class="px-3 py-2 text-left">Vendedor</th>
+                <th class="px-3 py-2 text-right">Cotação</th>
+                <th class="px-3 py-2 text-right">Recebe</th>
+                <th class="px-3 py-2 text-right">Paga</th>
+                <th class="px-3 py-2 text-center">★</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TAB: Calculadora ===== -->
+    <div id="tab-calc" class="tab-content hidden">
+      <div class="mb-5">
+        <h2 class="text-2xl font-semibold">Calculadora de retorno</h2>
+        <p class="text-sm text-gray-400 mt-1">Informe seus custos e as cotações que espera conseguir. Os resultados são estimativas.</p>
+      </div>
+      <label class="block text-sm text-gray-400 mb-4">O que quer calcular?
+        <select id="calcMode" class="block mt-1 px-3 py-2 rounded-lg text-sm">
+          <option value="retorno">Comprei diamantes: ponto de equilíbrio e lucro</option>
+          <option value="gold">Tenho gold: comparar conversão direta e rota por diamantes</option>
+        </select>
+      </label>
+      <section id="mode-retorno" class="calc-mode">
+        <div class="glass rounded-xl p-5">
+          <p class="text-sm text-gray-300 mb-4">Esta conta responde quanto gold você precisa obter para recuperar o que pagou e qual seria o resultado na cotação de venda informada. Se os diamantes já são seus, deixe o custo por diamante em R$ 0,00.</p>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="space-y-3">
+              <label class="block"><span class="text-sm text-gray-400">Quantidade de diamantes</span><input id="rQty" type="number" min="0" step="1" value="100" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+              <label class="block"><span class="text-sm text-gray-400">Quanto pagou por diamante (R$)</span><input id="rCost" type="number" min="0" step="0.01" value="0.28" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+              <label class="block"><span class="text-sm text-gray-400">Gold que espera receber por diamante</span><input id="rSellRate" type="number" min="0" step="1" value="350000" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+              <label class="block"><span class="text-sm text-gray-400">Valor de 1 milhão de gold (R$)</span><input id="rPix" type="number" min="0" step="0.01" value="1" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+            </div>
+            <div class="space-y-2">
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Total investido</span><b id="rInvestment">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Gold para empatar</span><b id="rBreakEvenGold">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Mínimo por diamante para empatar</span><b id="rBreakEvenPerDia">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Gold na cotação esperada</span><b id="rGoldResult">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Valor recebido estimado</span><b id="rRevenue">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Lucro ou prejuízo estimado</span><b id="rProfit">—</b></div>
+              <div class="flex justify-between gap-4 py-2"><span class="text-gray-400">Retorno sobre o investimento (ROI)</span><b id="rRoi">—</b></div>
+            </div>
+          </div>
+          <div class="mt-4 rounded-lg bg-blue-950/50 p-3 text-xs text-blue-200">Exemplo: 100 diamantes × R$ 0,28 = R$ 28 investidos. A R$ 1 por milhão de gold, são necessários 28 milhões de gold para empatar, ou 280.000 gold por diamante.</div>
+        </div>
+      </section>
+      <section id="mode-gold" class="calc-mode hidden">
+        <div class="glass rounded-xl p-5">
+          <p class="text-sm text-gray-300 mb-4">Compara o valor de converter seu gold diretamente com o valor estimado de comprar diamantes e revendê-los. A rota por diamantes só é melhor se o valor recebido na revenda superar a conversão direta.</p>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="space-y-3">
+              <label class="block"><span class="text-sm text-gray-400">Gold disponível</span><input id="gAmount" type="number" min="0" step="1" value="1000000" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+              <label class="block"><span class="text-sm text-gray-400">Valor de 1 milhão de gold (R$)</span><input id="gPix" type="number" min="0" step="0.01" value="1" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+              <label class="block"><span class="text-sm text-gray-400">Gold pago por diamante na compra</span><input id="gBuyRate" type="number" min="0" step="1" value="325423" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+              <label class="block"><span class="text-sm text-gray-400">Gold recebido por diamante na revenda</span><input id="gSellRate" type="number" min="0" step="1" value="350000" class="w-full mt-1 px-3 py-2 rounded-lg"></label>
+            </div>
+            <div class="space-y-2">
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Conversão direta em R$</span><b id="gDirect">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Diamantes que conseguiria comprar</span><b id="gDiamonds">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Gold estimado após revenda</span><b id="gGoldAfter">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Valor estimado da revenda</span><b id="gResaleValue">—</b></div>
+              <div class="flex justify-between gap-4 py-2 border-b border-gray-700"><span class="text-gray-400">Diferença para a conversão direta</span><b id="gDifference">—</b></div>
+              <div class="flex justify-between gap-4 py-2"><span class="text-gray-400">Resultado da comparação</span><b id="gBest">—</b></div>
+            </div>
+          </div>
+          <p class="mt-4 text-xs text-gray-500">Simulação teórica: não considera taxas, limites de quantidade, ofertas que desaparecem nem garantia de conseguir comprar e revender nas cotações informadas.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- ===== TAB: Meu caixa ===== -->
+    <div id="tab-caixa" class="tab-content hidden">
+      <div class="mb-5">
+        <h2 class="text-2xl font-semibold">Meu caixa</h2>
+        <p class="text-sm text-gray-400 mt-1">Registre compras, vendas, transferências/uso de DD e conversões de gold em reais recebidos.</p>
+      </div>
+      <div id="cashNotice" role="status" aria-live="polite" class="hidden rounded-lg border px-4 py-3 mb-5 text-sm"></div>
+
+      <div class="glass rounded-xl p-4 mb-5 flex flex-wrap items-end gap-3">
+        <label class="block text-sm text-gray-300">Cotação de referência · R$ por 1 milhão de gold
+          <input id="cashGoldRate" type="number" min="0.01" step="0.01" class="block mt-1 px-3 py-2 rounded-lg w-56">
+        </label>
+        <span class="text-xs text-gray-500 pb-2">Usada somente para estimar o gold pendente; não conta como dinheiro recebido.</span>
+      </div>
+
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Reais investidos</div><div id="cashInvested" class="text-xl font-bold mt-1">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Reais recuperados</div><div id="cashReturned" class="text-xl font-bold mt-1 text-green-300">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Resultado de caixa</div><div id="cashNet" class="text-xl font-bold mt-1">—</div><div class="text-xs text-gray-500">recuperado − investido</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Estimativa do gold pendente</div><div id="cashGoldEstimate" class="text-xl font-bold mt-1 text-yellow-300">—</div><div class="text-xs text-yellow-500">não é dinheiro recebido</div></div>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 mb-6">
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Diamantes comprados</div><div id="cashDiamondsBought" class="text-lg font-semibold mt-1">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Diamantes vendidos</div><div id="cashDiamondsSold" class="text-lg font-semibold mt-1">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">DD usados/transferidos</div><div id="cashDiamondsUsed" class="text-lg font-semibold mt-1">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Saldo estimado de diamantes</div><div id="cashDiamondsBalance" class="text-lg font-semibold mt-1">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Gold recebido por vendas</div><div id="cashGoldReceived" class="text-lg font-semibold mt-1">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Gold vendido por reais</div><div id="cashGoldConverted" class="text-lg font-semibold mt-1">—</div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Gold pendente de conversão</div><div id="cashGoldPending" class="text-lg font-semibold mt-1">—</div></div>
+      </div>
+      <div class="glass rounded-xl p-4 mb-5">
+        <h3 class="text-lg font-semibold mb-1">Diamantes por lote · FIFO</h3>
+        <p class="text-xs text-gray-400 mb-3">Cada venda consome primeiro os diamantes comprados há mais tempo. O controle é contábil; os diamantes continuam misturados na conta do jogo.</p>
+        <div id="cashLotSummary" class="space-y-2 text-sm"></div>
+      </div>
+      <div id="cashWarning" class="hidden rounded-lg border border-amber-700 bg-amber-950/40 text-amber-200 text-sm p-3 mb-5">Os lançamentos mostram mais gold convertido do que disponível. Confira vendas ou saldo inicial.</div>
+
+      <div class="glass rounded-xl p-5 mb-5">
+        <h3 class="text-lg font-semibold mb-1">Saldo atual do jogo</h3>
+        <p class="text-xs text-gray-400 mb-4">Informe o que aparece no jogo agora. Isso cria um ponto de referência; os lançamentos posteriores atualizam o saldo calculado automaticamente. Pode digitar separador de milhar (ex.: 53.000.000); os pontos são ignorados.</p>
+        <form id="cashBalanceForm" class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+          <label class="block text-sm text-gray-300">Diamantes que você tem agora
+            <input id="cashSetDiamonds" type="text" inputmode="numeric" data-cash-integer="1" autocomplete="off" class="block mt-1 px-3 py-2 rounded-lg w-full bg-slate-900 border border-slate-600" placeholder="ex.: 89 ou 1.000">
+          </label>
+          <label class="block text-sm text-gray-300">Gold disponível agora
+            <input id="cashSetGold" type="text" inputmode="numeric" data-cash-integer="1" autocomplete="off" class="block mt-1 px-3 py-2 rounded-lg w-full bg-slate-900 border border-slate-600" placeholder="ex.: 53000000 ou 53.000.000">
+          </label>
+          <button id="cashBalanceSave" type="submit" class="bg-emerald-700 hover:bg-emerald-600 px-4 py-2 rounded-lg text-sm font-medium">Registrar saldo atual</button>
+        </form>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+          <div class="glass rounded-lg p-3"><div class="text-xs text-gray-400">Diamantes atuais calculados</div><div id="cashCurrentDiamonds" class="text-lg font-semibold mt-1">—</div></div>
+          <div class="glass rounded-lg p-3"><div class="text-xs text-gray-400">Gold atual calculado</div><div id="cashCurrentGold" class="text-lg font-semibold mt-1">—</div></div>
+          <div class="glass rounded-lg p-3"><div class="text-xs text-gray-400">Saldo registrado em</div><div id="cashCurrentUpdated" class="text-sm font-semibold mt-1">Ainda não informado</div></div>
+        </div>
+        <div id="cashBalanceStatus" class="text-sm text-gray-300 mt-3" role="status" aria-live="polite">Informe os dois saldos para começar.</div>
+      </div>
+
+      <div class="glass rounded-xl p-4 mb-5">
+        <h3 class="text-lg font-semibold mb-1">Vendas importadas do jogo</h3>
+        <p class="text-xs text-gray-400 mb-4">Sincronizadas pelo userscript <span class="font-mono">meu-caixa-vendas.user.js</span> a partir das vendas concluídas do Mercado (Minhas vendas → ENCERRADOS). A deduplicação exige um ID estável da transação (id/data-* / link). Sem ID estável, a importação automática é bloqueada e as vendas aparecem apenas para revisão manual; não se inventa um identificador único a partir do texto. A data registrada é a primeira leitura. O gold fica pendente até o pagamento confirmar.</p>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Diamantes vendidos (jogo)</div><div id="cashImpSoldDiamonds" class="text-lg font-semibold mt-1">—</div></div>
+          <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Gold das vendas (jogo)</div><div id="cashImpSoldGold" class="text-lg font-semibold mt-1">—</div></div>
+          <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Média por diamante (jogo)</div><div id="cashImpAvg" class="text-lg font-semibold mt-1">—</div></div>
+          <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Gold pendente no Correio</div><div id="cashImpPendingGold" class="text-lg font-semibold mt-1 text-yellow-300">—</div></div>
+          <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Vendas importadas</div><div id="cashImpCount" class="text-lg font-semibold mt-1">—</div></div>
+          <div class="glass rounded-xl p-4"><div class="text-xs text-gray-400">Registro mais recente (1ª leitura)</div><div id="cashImpLastSync" class="text-lg font-semibold mt-1">—</div></div>
+        </div>
+      </div>
+
+      <div class="glass rounded-xl p-5 mb-6">
+        <h3 class="text-lg font-semibold mb-1">Adicionar lançamento manual</h3>
+        <p class="text-xs text-gray-400 mb-4">Exemplos: 140 DD por R$ 40; venda de 10 DD por 3.750.000 gold; transferência de 50 DD para a conta de farm; venda de 14.000.000 gold por R$ 14 recebidos.</p>
+        <form id="cashForm" class="space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="block text-sm text-gray-300">Tipo de lançamento
+              <select id="cashType" class="block mt-1 px-3 py-2 rounded-lg w-full">
+                <option value="compra_diamantes">Compra de diamantes</option>
+                <option value="uso_diamantes">Uso/transferência de diamantes</option>
+                <option value="venda_diamantes_gold">Venda de diamantes por gold</option>
+                <option value="conversao_gold_reais">Venda de gold por reais</option>
+                <option value="ajuste_inicial">Saldo inicial de diamantes/gold</option>
+                 <option value="ajuste_saldo">Ajuste de saldo (variação)</option>
+                 <option value="saldo_atual">Saldo atual informado</option>
+                 <option value="resumo">Resumo consolidado</option>
+              </select>
+            </label>
+            <label class="block text-sm text-gray-300">Data
+              <input id="cashDate" type="datetime-local" required class="block mt-1 px-3 py-2 rounded-lg w-full bg-slate-900 border border-slate-600">
+            </label>
+          </div>
+          <div id="cashFields" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+          <label class="block text-sm text-gray-300">Observação (opcional)
+            <input id="cashNote" type="text" maxlength="500" class="block mt-1 px-3 py-2 rounded-lg w-full bg-slate-900 border border-slate-600" placeholder="Ex.: compra em 05/11">
+          </label>
+          <div class="flex flex-wrap gap-2">
+            <button id="cashSave" type="submit" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium">Salvar lançamento</button>
+            <button id="cashCancelEdit" type="button" class="hidden bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm">Cancelar edição</button>
+            <span id="cashFormStatus" class="text-sm text-gray-400 self-center" aria-live="polite"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="glass rounded-xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div><h3 class="text-lg font-semibold">Lançamentos</h3><p class="text-xs text-gray-400">Registros manuais e vendas importadas do jogo. Use os filtros para encontrar o que precisa.</p></div>
+          <div class="flex gap-2"><button id="cashExportCsv" class="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs">Exportar CSV</button><button id="cashExportJson" class="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs">Exportar JSON</button></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 mb-3">
+          <label class="block text-xs text-gray-400 lg:col-span-2">Buscar
+            <input id="cashFilterText" type="search" autocomplete="off" placeholder="tipo, observação, vendedor…" class="mt-1 w-full px-3 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600">
+          </label>
+          <label class="block text-xs text-gray-400">Tipo
+            <select id="cashFilterType" class="mt-1 w-full px-2 py-2 rounded-lg text-sm"><option value="all">Todos os tipos</option></select>
+          </label>
+          <label class="block text-xs text-gray-400">Origem
+            <select id="cashFilterOrigin" class="mt-1 w-full px-2 py-2 rounded-lg text-sm"><option value="all">Todas</option><option value="manual">Manual</option><option value="jogo">Jogo</option></select>
+          </label>
+          <label class="block text-xs text-gray-400">De
+            <input id="cashFilterFrom" type="date" class="mt-1 w-full px-2 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600">
+          </label>
+          <label class="block text-xs text-gray-400">Até
+            <input id="cashFilterTo" type="date" class="mt-1 w-full px-2 py-2 rounded-lg text-sm bg-slate-900 border border-slate-600">
+          </label>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <span id="cashFilterCount" class="text-xs text-gray-400"></span>
+          <button id="cashFilterClear" type="button" class="text-xs px-2.5 py-1.5 rounded bg-slate-700 hover:bg-slate-600">Limpar filtros</button>
+        </div>
+        <div id="cashEntries" class="space-y-2"><div class="text-center text-sm text-gray-500 py-8">Carregando lançamentos…</div></div>
+      </div>
+    </div>
+
+    <footer class="mt-8 text-center text-gray-500 text-sm">
+      Dados coletados do Mercado (Câmbio) do Leveling Idle 2D · Auto-atualização 1 min
+    </footer>
+  </div>
+
+  <script>
+    const DATA_URL = '/dados';
+    const HISTORY_URL = '/historico';
+    const CASH_URL = '/carteira';
+    const CASH_LOCAL_KEY = 'cambioMeuCaixa.v1';
+    let data = { comprar: [], vender: [] };
+    let charts = {};
+    let history = [];
+    let cashbook = { versao: 1, config: { reaisPorMilhaoGold: 1 }, lancamentos: [] };
+    let cashbookServerSynced = false;
+    let cashEditingId = null;
+    const ALERT_KEY = 'cambioDashboard.lastAlert';
+    const CASH_LABELS = {
+      compra_diamantes: 'Compra de diamantes',
+      uso_diamantes: 'Uso/transferência',
+      venda_diamantes_gold: 'Venda de diamantes',
+      conversao_gold_reais: 'Venda de gold',
+      ajuste_inicial: 'Saldo inicial',
+      ajuste_saldo: 'Ajuste de saldo',
+      saldo_atual: 'Saldo atual',
+      resumo: 'Resumo consolidado'
+    };
+    const CASH_BADGE = {
+      compra_diamantes: 'border-emerald-700 bg-emerald-950/60 text-emerald-200',
+      uso_diamantes: 'border-slate-600 bg-slate-800 text-slate-200',
+      venda_diamantes_gold: 'border-blue-700 bg-blue-950/60 text-blue-200',
+      conversao_gold_reais: 'border-amber-700 bg-amber-950/60 text-amber-200',
+      ajuste_inicial: 'border-purple-700 bg-purple-950/60 text-purple-200',
+      ajuste_saldo: 'border-purple-700 bg-purple-950/60 text-purple-200',
+      saldo_atual: 'border-cyan-700 bg-cyan-950/60 text-cyan-200',
+      resumo: 'border-indigo-700 bg-indigo-950/60 text-indigo-200'
+    };
+
+    function fmt(n, d = 0) {
+      if (n === null || n === undefined || isNaN(n)) return '—';
+      return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+    }
+    function fmtMoney(n) { return 'R$ ' + fmt(n, 2); }
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+    function parseNum(v) {
+      if (typeof v === 'number') return v;
+      const text = String(v ?? '').trim();
+      if (!text) return NaN;
+      const normalized = text.includes(',')
+        ? text.replace(/\./g, '').replace(',', '.')
+        : (/^-?\d{1,3}(?:\.\d{3})+$/.test(text) ? text.replace(/\./g, '') : text);
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : NaN;
+    }
+
+    function cashTotals() {
+      const rows = cashbook.lancamentos || [];
+      const resumo = rows.filter(r => r.tipo === 'resumo').sort((a, b) => new Date(b.data) - new Date(a.data))[0] || null;
+      const resumoTime = resumo ? new Date(resumo.data).getTime() : null;
+      const activity = rows.filter(r => r.tipo !== 'saldo_atual' && r.tipo !== 'resumo' && (resumoTime === null || new Date(r.data).getTime() > resumoTime));
+      const snapshots = rows.filter(r => r.tipo === 'saldo_atual').sort((a, b) => new Date(b.data) - new Date(a.data));
+      const snapshot = snapshots[0] || (resumo ? { data: resumo.data } : null);
+      const sumRows = (source, type, field) => source.filter(r => r.tipo === type).reduce((a, r) => a + (Number(r[field]) || 0), 0);
+      const base = resumo ? {
+        bought: Number(resumo.quantidadeDiamantesComprados) || 0,
+        sold: Number(resumo.quantidadeDiamantesVendidos) || 0,
+        used: 0,
+        invested: Number(resumo.valorInvestidoReais) || 0,
+        returned: Number(resumo.valorRecebidoReais) || 0,
+        goldReceived: Number(resumo.quantidadeGoldVendida) || 0,
+        goldConverted: Number(resumo.quantidadeGoldVendida) || 0,
+        diamondsBalance: Number(resumo.quantidadeDiamantesRestantes) || 0,
+        goldPending: Number(resumo.quantidadeGoldRestante) || 0
+      } : { bought: 0, sold: 0, used: 0, invested: 0, returned: 0, goldReceived: 0, goldConverted: 0, diamondsBalance: 0, goldPending: 0 };
+      const initialDiamonds = sumRows(activity, 'ajuste_inicial', 'quantidadeDiamantes');
+      const initialGold = sumRows(activity, 'ajuste_inicial', 'quantidadeGold');
+      const bought = base.bought + sumRows(activity, 'compra_diamantes', 'quantidadeDiamantes');
+      const sold = base.sold + sumRows(activity, 'venda_diamantes_gold', 'quantidadeDiamantesVendidas');
+      const used = base.used + sumRows(activity, 'uso_diamantes', 'quantidadeDiamantes');
+      const invested = base.invested + sumRows(activity, 'compra_diamantes', 'valorReais');
+      const returned = base.returned + sumRows(activity, 'conversao_gold_reais', 'valorReais');
+      const received = (source) => source.filter(r => r.tipo === 'venda_diamantes_gold' && !(r.origem === 'jogo' && String(r.statusPagamento || '').toLowerCase().includes('pagamento enviado'))).reduce((s, r) => s + (Number(r.quantidadeGoldRecebida) || 0), 0);
+      const goldReceived = base.goldReceived + received(activity);
+      const goldConverted = base.goldConverted + sumRows(activity, 'conversao_gold_reais', 'quantidadeGold');
+      const goldBalance = base.goldPending + initialGold + sumRows(activity, 'ajuste_saldo', 'quantidadeGold') + received(activity) - sumRows(activity, 'conversao_gold_reais', 'quantidadeGold');
+      const diamondsBalance = base.diamondsBalance + initialDiamonds + sumRows(activity, 'ajuste_saldo', 'quantidadeDiamantes') + sumRows(activity, 'compra_diamantes', 'quantidadeDiamantes') - sumRows(activity, 'venda_diamantes_gold', 'quantidadeDiamantesVendidas') - sumRows(activity, 'uso_diamantes', 'quantidadeDiamantes');
+      return {
+        initialDiamonds, initialGold, bought, sold, used, invested, returned, goldReceived, goldConverted,
+        diamondsBalance, goldPending: goldBalance, snapshot, resumo
+      };
+    }
+
+    function cashLotLedger({ beforeTime = Infinity, excludeEntryId = null } = {}) {
+      const rank = { resumo: 0, ajuste_inicial: 0, ajuste_saldo: 0, saldo_atual: 0, compra_diamantes: 1, venda_diamantes_gold: 2, uso_diamantes: 3 };
+      const resumos = (cashbook.lancamentos || [])
+        .filter(r => r && r.tipo === 'resumo' && r.id !== excludeEntryId)
+        .sort((a, b) => new Date(a.data) - new Date(b.data));
+      const resumoAtual = resumos.length ? resumos[resumos.length - 1] : null;
+      const resumoTime = resumoAtual ? new Date(resumoAtual.data).getTime() : null;
+      const events = (cashbook.lancamentos || []).filter(r => {
+        if (!r || r.id === excludeEntryId) return false;
+        if (r.tipo === 'resumo') return !!resumoAtual && r.id === resumoAtual.id && new Date(r.data).getTime() < beforeTime;
+        // O resumo substitui o histórico anterior; os lotes anteriores a ele já estão no saldo restante.
+        if (resumoTime !== null && new Date(r.data).getTime() <= resumoTime) return false;
+        return ['ajuste_inicial', 'ajuste_saldo', 'saldo_atual', 'compra_diamantes', 'venda_diamantes_gold', 'uso_diamantes'].includes(r.tipo) && new Date(r.data).getTime() < beforeTime;
+      }).sort((a, b) => new Date(a.data) - new Date(b.data) || (rank[a.tipo] || 0) - (rank[b.tipo] || 0));
+      const lots = [];
+      const byId = new Map();
+      const sales = new Map();
+      const addLot = (row, quantity, cost, label) => {
+        if (!quantity) return;
+        const lot = { id: row.id, label, date: row.data, bought: quantity, sold: 0, used: 0, usedCost: 0, remaining: quantity, totalCost: cost, unitCost: cost === null ? null : cost / quantity, goldGenerated: 0 };
+        lots.push(lot); byId.set(row.id, lot);
+      };
+      for (const row of events) {
+        if (row.tipo === 'compra_diamantes') {
+          addLot(row, Number(row.quantidadeDiamantes) || 0, Number(row.valorReais) || 0, 'Compra');
+        } else if (row.tipo === 'resumo') {
+          const restante = Number(row.quantidadeDiamantesRestantes) || 0;
+          if (restante > 0) addLot(row, restante, null, 'Saldo restante do resumo consolidado');
+        } else if (row.tipo === 'ajuste_inicial' && Number(row.quantidadeDiamantes) > 0) {
+          addLot(row, Number(row.quantidadeDiamantes), null, 'Saldo inicial sem custo informado');
+        } else if (row.tipo === 'ajuste_saldo') {
+          const dd = Number(row.quantidadeDiamantes) || 0;
+          if (dd > 0) {
+            addLot(row, dd, null, 'Ajuste de saldo (+DD sem custo separado)');
+          } else if (dd < 0) {
+            let remaining = -dd;
+            const allocations = [];
+            for (const lot of lots) {
+              if (remaining <= 0) break;
+              if (new Date(lot.date).getTime() >= new Date(row.data).getTime() || lot.remaining <= 0) continue;
+              const quantity = Math.min(remaining, lot.remaining);
+              lot.remaining -= quantity; lot.used += quantity;
+              if (lot.unitCost !== null) lot.usedCost += lot.unitCost * quantity;
+              remaining -= quantity;
+              allocations.push({ lotId: lot.id, quantity, gold: 0 });
+            }
+            sales.set(row.id, { allocations, unallocated: remaining, goldUnallocated: 0, used: true });
+          }
+        } else if (row.tipo === 'saldo_atual') {
+          // Snapshot apenas registra; a variação vem de ajuste_saldo.
+        } else if (row.tipo === 'uso_diamantes') {
+          let remaining = Number(row.quantidadeDiamantes) || 0;
+          const allocations = [];
+          for (const lot of lots) {
+            if (remaining <= 0) break;
+            if (new Date(lot.date).getTime() >= new Date(row.data).getTime() || lot.remaining <= 0) continue;
+            const quantity = Math.min(remaining, lot.remaining);
+            lot.remaining -= quantity; lot.used += quantity;
+            if (lot.unitCost !== null) lot.usedCost += lot.unitCost * quantity;
+            remaining -= quantity;
+            allocations.push({ lotId: lot.id, quantity, gold: 0 });
+          }
+          sales.set(row.id, { allocations, unallocated: remaining, goldUnallocated: 0, used: true });
+        } else if (row.tipo === 'venda_diamantes_gold') {
+          let remaining = Number(row.quantidadeDiamantesVendidas) || 0;
+          const allocations = [];
+          for (const lot of lots) {
+            if (remaining <= 0) break;
+            if (new Date(lot.date).getTime() >= new Date(row.data).getTime() || lot.remaining <= 0) continue;
+            const quantity = Math.min(remaining, lot.remaining);
+            lot.remaining -= quantity; lot.sold += quantity; remaining -= quantity;
+            allocations.push({ lotId: lot.id, quantity, gold: 0 });
+          }
+          const soldQuantity = Number(row.quantidadeDiamantesVendidas) || 0;
+          const gold = Number(row.quantidadeGoldRecebida) || 0;
+          let goldAssigned = 0;
+          allocations.forEach((allocation, index) => {
+            const isFullyAllocated = remaining === 0;
+            const share = isFullyAllocated && index === allocations.length - 1
+              ? gold - goldAssigned
+              : Math.floor(gold * allocation.quantity / Math.max(1, soldQuantity));
+            allocation.gold = share; goldAssigned += share;
+            const lot = byId.get(allocation.lotId);
+            if (lot) lot.goldGenerated += share;
+          });
+          sales.set(row.id, { allocations, unallocated: remaining, goldUnallocated: gold - goldAssigned });
+        }
+      }
+      return { lots, sales };
+    }
+
+    function cashImported() {
+      return (cashbook.lancamentos || []).filter(r => r && r.origem === 'jogo' && r.tipo === 'venda_diamantes_gold');
+    }
+
+    function cashImportedTotals() {
+      const list = cashImported();
+      const sold = list.reduce((s, r) => s + (Number(r.quantidadeDiamantesVendidas) || 0), 0);
+      const gold = list.reduce((s, r) => s + (Number(r.quantidadeGoldRecebida) || 0), 0);
+      const pend = (r) => {
+        const texto = String(r.statusPagamento || '').toLowerCase();
+        const resolvido = texto.includes('resgat') || texto.includes('receb') || texto.includes('entregue') || texto.includes('concluid');
+        const emTransito = texto.includes('pagamento enviado') || texto.includes('em transito') || texto.includes('processando');
+        return !resolvido && (!texto || emTransito);
+      };
+      const pendingGold = list.filter(pend).reduce((s, r) => s + (Number(r.quantidadeGoldRecebida) || 0), 0);
+      return { list, sold, gold, pendingGold, count: list.length };
+    }
+
+    function renderCashbook() {
+      const t = cashTotals();
+      const lotLedger = cashLotLedger();
+      const rate = Number(cashbook.config?.reaisPorMilhaoGold) || 0;
+      const pendingValue = Math.max(0, t.goldPending) / 1000000 * rate;
+      const imported = cashImportedTotals();
+      const impSoldDiamonds = imported.sold;
+      const impSoldGold = imported.gold;
+      const impAvgGold = impSoldDiamonds ? (impSoldGold / impSoldDiamonds) : 0;
+      const impAvgReais = impSoldDiamonds ? (impSoldGold / impSoldDiamonds) / 1000000 * rate : 0;
+      const impPendingGold = imported.pendingGold;
+      const impCount = imported.count;
+      const values = {
+        cashInvested: fmtMoney(t.invested), cashReturned: fmtMoney(t.returned),
+        cashNet: fmtMoney(t.returned - t.invested), cashGoldEstimate: fmtMoney(pendingValue),
+        cashDiamondsBought: fmt(t.bought), cashDiamondsSold: fmt(t.sold), cashDiamondsUsed: fmt(t.used),
+        cashDiamondsBalance: fmt(t.diamondsBalance), cashGoldReceived: fmt(t.goldReceived),
+        cashGoldConverted: fmt(t.goldConverted), cashGoldPending: fmt(t.goldPending),
+        cashCurrentDiamonds: fmt(t.diamondsBalance), cashCurrentGold: fmt(t.goldPending),
+        cashImpSoldDiamonds: fmt(impSoldDiamonds), cashImpSoldGold: fmt(impSoldGold),
+        cashImpAvg: fmt(Math.round(impAvgGold)), cashImpAvgReais: fmtMoney(impAvgReais),
+        cashImpPendingGold: fmt(impPendingGold), cashImpCount: String(impCount)
+      };
+      Object.entries(values).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.textContent = value; });
+      const snapshotDate = document.getElementById('cashCurrentUpdated');
+      if (snapshotDate) snapshotDate.textContent = t.snapshot ? new Date(t.snapshot.data).toLocaleString('pt-BR') : 'Ainda não informado';
+      const balanceStatus = document.getElementById('cashBalanceStatus');
+      if (balanceStatus && t.snapshot) balanceStatus.textContent = 'Saldo de referência salvo. Você pode substituir os valores acima quando consultar o jogo novamente.';
+      else if (balanceStatus) balanceStatus.textContent = 'Ainda não há um saldo atual registrado. Informe os valores que aparecem no jogo.';
+      if (balanceStatus) balanceStatus.className = 'text-sm text-gray-300 mt-3';
+      const setDd = document.getElementById('cashSetDiamonds');
+      const setGold = document.getElementById('cashSetGold');
+      if (setDd && document.activeElement !== setDd) setDd.value = fmt(Math.max(0, t.diamondsBalance));
+      if (setGold && document.activeElement !== setGold) setGold.value = fmt(Math.max(0, t.goldPending));
+      const impLastSync = document.getElementById('cashImpLastSync');
+      if (impLastSync) { const datas = imported.list.map(r => r.data).filter(Boolean).sort((a, b) => new Date(b).getTime() - new Date(a).getTime()); impLastSync.textContent = datas.length ? new Date(datas[0]).toLocaleString('pt-BR') : '—'; }
+      const net = document.getElementById('cashNet');
+      net.className = 'text-xl font-bold mt-1 ' + (t.returned - t.invested >= 0 ? 'text-green-300' : 'text-red-300');
+      const warning = document.getElementById('cashWarning');
+      const issues = [];
+      if (t.goldPending < 0) issues.push('gold convertido acima do saldo inicial + gold recebido');
+      if (t.diamondsBalance < 0) issues.push('diamantes vendidos acima do saldo inicial + diamantes comprados');
+      warning.textContent = issues.length ? 'Confira os lançamentos: ' + issues.join('; ') + '.' : '';
+      warning.classList.toggle('hidden', !issues.length);
+
+      const lotSummary = document.getElementById('cashLotSummary');
+      if (lotSummary) {
+        const unallocated = [...lotLedger.sales.values()].reduce((sum, sale) => sum + sale.unallocated, 0);
+        const lotRows = lotLedger.lots.map((lot, index) => {
+          const when = new Date(lot.date).toLocaleDateString('pt-BR');
+          const costLeft = lot.unitCost === null ? 'custo não informado' : fmtMoney(lot.unitCost * lot.remaining) + ' em estoque';
+          const unitCost = lot.unitCost === null ? '—' : fmtMoney(lot.unitCost) + '/DD';
+          return `<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-1 border-b border-gray-700 py-2">
+            <div class="font-medium">Lote ${index + 1} · ${escapeHtml(lot.label || 'Lote')} · ${escapeHtml(when)}</div>
+            <div>${fmt(lot.bought)} DD no lote · ${unitCost}</div>
+            <div>${fmt(lot.sold)} vendidos</div>
+            <div>${fmt(lot.used)} usados/transferidos${lot.usedCost ? ' · ' + fmtMoney(lot.usedCost) : ''}</div>
+            <div>${fmt(lot.remaining)} restantes</div>
+            <div>${costLeft} · ${fmt(lot.goldGenerated)} gold gerados</div>
+          </div>`;
+        }).join('');
+        lotSummary.innerHTML = (lotRows || '<div class="text-gray-400">Nenhum lote de diamantes registrado.</div>') +
+          (unallocated ? `<div class="text-amber-300 pt-2">${fmt(unallocated)} DD vendidos/usados não puderam ser atribuídos a lotes anteriores. Confira as datas e os saldos iniciais.</div>` : '');
+      }
+
+      renderCashEntries(lotLedger);
+    }
+
+    function normalizeText(value) {
+      return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    }
+
+    function cashEntryView(row, lotLedger) {
+      const label = CASH_LABELS[row.tipo] || row.tipo;
+      const imported = row.origem === 'jogo';
+      const lotSources = movement => {
+        if (!movement) return '';
+        const sources = movement.allocations.map(allocation => {
+          const lotIndex = lotLedger.lots.findIndex(lot => lot.id === allocation.lotId);
+          return `Lote ${lotIndex + 1}: ${fmt(allocation.quantity)} DD`;
+        }).join(' + ');
+        return sources ? `FIFO: ${sources}` : '';
+      };
+      let movement = '', extra = '', warning = '';
+      if (row.tipo === 'compra_diamantes') {
+        movement = `${fmt(row.quantidadeDiamantes)} DD comprados · ${fmtMoney(row.valorReais)} · ${fmtMoney(row.valorReais / row.quantidadeDiamantes)}/DD`;
+      } else if (row.tipo === 'uso_diamantes') {
+        const entry = lotLedger.sales.get(row.id);
+        const usedCost = entry?.allocations.reduce((sum, allocation) => {
+          const lot = lotLedger.lots.find(item => item.id === allocation.lotId);
+          return sum + (lot && lot.unitCost !== null ? lot.unitCost * allocation.quantity : 0);
+        }, 0) || 0;
+        movement = `${fmt(row.quantidadeDiamantes)} DD usados/transferidos`;
+        extra = [lotSources(entry), usedCost ? `custo alocado ${fmtMoney(usedCost)}` : ''].filter(Boolean).join(' · ');
+        if (entry?.unallocated) warning = `${fmt(entry.unallocated)} DD sem lote anterior`;
+      } else if (row.tipo === 'venda_diamantes_gold') {
+        const entry = lotLedger.sales.get(row.id);
+        const averageGold = row.quantidadeDiamantesVendidas ? row.quantidadeGoldRecebida / row.quantidadeDiamantesVendidas : null;
+        movement = `${fmt(row.quantidadeDiamantesVendidas)} DD vendidos → ${fmt(row.quantidadeGoldRecebida)} gold`;
+        extra = [averageGold !== null ? `Média: ${fmt(averageGold)} gold por DD` : '', lotSources(entry)].filter(Boolean).join(' · ');
+        if (entry?.unallocated) warning = `${fmt(entry.unallocated)} DD sem lote anterior`;
+      } else if (row.tipo === 'conversao_gold_reais') {
+        const rate = row.quantidadeGold ? (row.valorReais / row.quantidadeGold) * 1000000 : null;
+        movement = `${fmt(row.quantidadeGold)} gold vendidos → ${fmtMoney(row.valorReais)} recebidos`;
+        extra = rate !== null ? `Equivale a ${fmtMoney(rate)} por 1 milhão de gold` : '';
+      } else if (row.tipo === 'resumo') {
+        const profit = (Number(row.valorRecebidoReais) || 0) - (Number(row.valorInvestidoReais) || 0);
+        movement = `${fmt(row.quantidadeDiamantesComprados)} DD comprados · ${fmt(row.quantidadeDiamantesVendidos)} DD vendidos · lucro ${fmtMoney(profit)} · restam ${fmt(row.quantidadeDiamantesRestantes)} DD`;
+        extra = `${fmtMoney(row.valorInvestidoReais)} investidos · ${fmtMoney(row.valorRecebidoReais)} recebidos · ${fmt(row.quantidadeGoldVendida)} gold vendidos · ${fmt(row.quantidadeGoldRestante)} gold restantes`;
+      } else if (row.tipo === 'saldo_atual') {
+        movement = `${fmt(row.quantidadeDiamantes)} DD · ${fmt(row.quantidadeGold)} gold disponíveis no jogo`;
+      } else if (row.tipo === 'ajuste_saldo') {
+        movement = `${fmt(row.quantidadeDiamantes)} DD · ${fmt(row.quantidadeGold)} gold (ajuste de saldo)`;
+      } else {
+        movement = `${fmt(row.quantidadeDiamantes)} DD · ${fmt(row.quantidadeGold)} gold (saldo inicial)`;
+      }
+      return { label, movement, extra, warning, observation: row.observacao || '', imported };
+    }
+
+    function renderCashEntries(ledger = cashLotLedger()) {
+      const list = document.getElementById('cashEntries');
+      if (!list) return;
+      const rows = [...(cashbook.lancamentos || [])].sort((a, b) => new Date(b.data) - new Date(a.data));
+      const views = rows.map(row => ({ row, view: cashEntryView(row, ledger) }));
+      const filter = {
+        text: normalizeText(document.getElementById('cashFilterText')?.value),
+        type: document.getElementById('cashFilterType')?.value || 'all',
+        origin: document.getElementById('cashFilterOrigin')?.value || 'all',
+        from: document.getElementById('cashFilterFrom')?.value || '',
+        to: document.getElementById('cashFilterTo')?.value || ''
+      };
+      const start = filter.from ? new Date(filter.from + 'T00:00:00').getTime() : null;
+      const end = filter.to ? new Date(filter.to + 'T23:59:59.999').getTime() : null;
+      const filtered = views.filter(({ row, view }) => {
+        if (filter.type !== 'all' && row.tipo !== filter.type) return false;
+        if (filter.origin !== 'all' && (row.origem || 'manual') !== filter.origin) return false;
+        const time = new Date(row.data).getTime();
+        if (start !== null && time < start) return false;
+        if (end !== null && time > end) return false;
+        if (filter.text) {
+          const haystack = normalizeText([view.label, view.movement, view.extra, view.warning, view.observation, row.contraparte, row.statusPagamento].join(' '));
+          if (!haystack.includes(filter.text)) return false;
+        }
+        return true;
+      });
+      const count = document.getElementById('cashFilterCount');
+      const plural = total => total === 1 ? '1 lançamento' : `${total} lançamentos`;
+      if (count) count.textContent = filtered.length === rows.length ? plural(rows.length) : `${filtered.length} de ${plural(rows.length)}`;
+      if (!rows.length) {
+        list.innerHTML = '<div class="text-center text-sm text-gray-500 py-8">Nenhum lançamento ainda.</div>';
+        return;
+      }
+      if (!filtered.length) {
+        list.innerHTML = '<div class="text-center text-sm text-gray-500 py-8">Nenhum lançamento atende aos filtros.<br><button type="button" id="cashFilterEmptyClear" class="mt-2 text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600">Limpar filtros</button></div>';
+        document.getElementById('cashFilterEmptyClear')?.addEventListener('click', clearCashFilters);
+        return;
+      }
+      list.innerHTML = filtered.map(({ row, view }) => {
+        const when = new Date(row.data).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const originBadge = view.imported
+          ? '<span class="text-[10px] px-1.5 py-0.5 rounded border border-sky-700 bg-sky-950/50 text-sky-200">jogo</span>'
+          : '<span class="text-[10px] px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800 text-slate-300">manual</span>';
+        const details = [view.extra, view.observation].filter(Boolean);
+        return `<div class="rounded-lg border border-slate-700/70 bg-slate-900/40">
+          <div class="flex flex-wrap items-center gap-2 px-3 pt-2.5">
+            <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full border ${CASH_BADGE[row.tipo] || 'border-slate-600 bg-slate-800 text-slate-200'}">${escapeHtml(view.label)}</span>
+            <span class="text-xs text-gray-400">${escapeHtml(when)}</span>
+            ${originBadge}
+            <div class="ml-auto flex gap-2">${row.origem === 'jogo'
+              ? '<span class="text-[11px] text-gray-500 self-center">somente leitura</span>'
+              : `${row.tipo === 'saldo_atual' ? '<span class="text-[11px] text-gray-500 self-center">novo registro substitui este</span> ' : ''}<button type="button" data-cash-edit="${escapeHtml(row.id)}" class="bg-slate-700 hover:bg-slate-600 px-2.5 py-1 rounded text-xs">Editar</button><button type="button" data-cash-delete="${escapeHtml(row.id)}" class="bg-red-950 hover:bg-red-900 px-2.5 py-1 rounded text-xs">Apagar</button>`}</div>
+          </div>
+          <div class="px-3 pb-2.5">
+            <div class="text-sm text-gray-100 mt-1">${escapeHtml(view.movement)}</div>
+            ${view.warning ? `<div class="text-xs text-amber-300 mt-1">${escapeHtml(view.warning)}</div>` : ''}
+            ${details.length ? `<details class="mt-1"><summary class="text-[11px] text-gray-500 cursor-pointer select-none">Detalhes</summary><div class="text-xs text-gray-500 mt-1 space-y-0.5">${details.map(detail => `<div>${escapeHtml(detail)}</div>`).join('')}</div></details>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function clearCashFilters() {
+      ['cashFilterText', 'cashFilterType', 'cashFilterOrigin', 'cashFilterFrom', 'cashFilterTo'].forEach(id => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        element.value = id === 'cashFilterType' || id === 'cashFilterOrigin' ? 'all' : '';
+      });
+      renderCashEntries();
+    }
+
+    function initCashFilters() {
+      const typeSelect = document.getElementById('cashFilterType');
+      if (typeSelect && typeSelect.options.length === 1) {
+        Object.entries(CASH_LABELS).forEach(([value, label]) => {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = label;
+          typeSelect.appendChild(option);
+        });
+      }
+      const bind = (id, event) => {
+        const element = document.getElementById(id);
+        if (element) element.addEventListener(event, () => renderCashEntries());
+      };
+      bind('cashFilterText', 'input');
+      bind('cashFilterType', 'change');
+      bind('cashFilterOrigin', 'change');
+      bind('cashFilterFrom', 'change');
+      bind('cashFilterTo', 'change');
+      document.getElementById('cashFilterClear')?.addEventListener('click', clearCashFilters);
+    }
+
+    function showCashNotice(message, kind = 'info') {
+      const box = document.getElementById('cashNotice');
+      if (!message) { box.classList.add('hidden'); box.textContent = ''; return; }
+      box.className = 'rounded-lg border px-4 py-3 mb-5 text-sm ' +
+        (kind === 'error' ? 'border-red-700 bg-red-950/50 text-red-200' : kind === 'success' ? 'border-green-700 bg-green-950/40 text-green-200' : kind === 'warning' ? 'border-amber-700 bg-amber-950/40 text-amber-200' : 'border-blue-700 bg-blue-950/40 text-blue-200');
+      box.textContent = message;
+    }
+
+    function readLocalCashbook() {
+      try {
+        const value = JSON.parse(localStorage.getItem(CASH_LOCAL_KEY) || 'null');
+        if (!value || !Array.isArray(value.lancamentos)) return null;
+        return { versao: 1, config: { reaisPorMilhaoGold: 1, ...(value.config || {}) }, lancamentos: value.lancamentos };
+      } catch (_) { return null; }
+    }
+
+    function cacheCashbookLocally() {
+      try { localStorage.setItem(CASH_LOCAL_KEY, JSON.stringify(cashbook)); return true; }
+      catch (_) { return false; }
+    }
+
+    async function loadCashbook() {
+      const status = document.getElementById('cashFormStatus');
+      status.textContent = 'Carregando…';
+      const local = readLocalCashbook();
+      try {
+        const res = await fetch(CASH_URL);
+        if (res.status === 404) throw new Error('Servidor desatualizado: pare a instância atual e reinicie iniciar.bat para habilitar o Meu caixa.');
+        if (!res.ok) throw new Error('servidor respondeu HTTP ' + res.status);
+        const json = await res.json();
+        const serverRows = Array.isArray(json.lancamentos) ? json.lancamentos : [];
+        const serverResumo = serverRows.filter(r => r.tipo === 'resumo').sort((a, b) => new Date(b.data) - new Date(a.data))[0] || null;
+        const resumoTime = serverResumo ? new Date(serverResumo.data).getTime() : null;
+        const merged = new Map(serverRows.map(r => [r.id, r]));
+        if (local) local.lancamentos.forEach(r => {
+          if (resumoTime !== null && new Date(r.data).getTime() <= resumoTime) return;
+          merged.set(r.id, r);
+        });
+        cashbook = { versao: 1, config: { reaisPorMilhaoGold: 1, ...(serverResumo ? { ...(local?.config || {}), ...(json.config || {}) } : { ...(json.config || {}), ...(local?.config || {}) }) }, lancamentos: [...merged.values()] };
+        cashbookServerSynced = true;
+        document.getElementById('cashGoldRate').value = cashbook.config.reaisPorMilhaoGold;
+        renderCashbook();
+        cacheCashbookLocally();
+        status.textContent = 'Carteira carregada.';
+        const remoteIds = new Set(serverRows.map(r => r.id));
+        const needsSync = local && local.lancamentos.some(r => !remoteIds.has(r.id) && !(resumoTime !== null && new Date(r.data).getTime() <= resumoTime));
+        if (needsSync) {
+          try {
+            const sync = await fetch(CASH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cashbook) });
+            const result = await sync.json();
+            if (!sync.ok || !result.ok) throw new Error(result.erro || 'falha ao sincronizar');
+            cashbookServerSynced = true;
+            showCashNotice('Recuperei e sincronizei os lançamentos guardados neste navegador para meu_caixa.json.', 'success');
+          } catch (_) {
+            cashbookServerSynced = false;
+            showCashNotice('Recuperei lançamentos do navegador, mas ainda não consegui sincronizá-los com meu_caixa.json.', 'warning');
+          }
+        } else showCashNotice('Carteira conectada e salva no arquivo local.', 'success');
+      } catch (e) {
+        cashbookServerSynced = false;
+        cashbook = local || { versao: 1, config: { reaisPorMilhaoGold: 1 }, lancamentos: [] };
+        document.getElementById('cashGoldRate').value = cashbook.config.reaisPorMilhaoGold;
+        renderCashbook();
+        status.textContent = local ? 'Carteira carregada do navegador.' : 'Aguardando primeiro lançamento.';
+        showCashNotice((e.message || 'Servidor indisponível.') + (local ? ' Seus lançamentos estão disponíveis neste navegador.' : ' Você ainda pode lançar; os dados serão salvos neste navegador até o servidor ser reiniciado.'), 'warning');
+        console.warn('Falha ao carregar Meu caixa:', e);
+      }
+    }
+
+    async function saveCashbook() {
+      const status = document.getElementById('cashFormStatus');
+      status.textContent = 'Salvando…';
+      if (!cacheCashbookLocally()) {
+        status.textContent = 'Não foi possível salvar neste navegador (armazenamento cheio ou bloqueado).';
+        showCashNotice(status.textContent, 'error');
+        return false;
+      }
+      try {
+        const res = await fetch(CASH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cashbook) });
+        if (res.status === 404) throw new Error('Servidor desatualizado: pare a instância atual e reinicie iniciar.bat para habilitar o Meu caixa.');
+        const result = await res.json();
+        if (!res.ok || !result.ok) throw new Error(result.erro || ('HTTP ' + res.status));
+        renderCashbook();
+        cashbookServerSynced = true;
+        status.textContent = 'Salvo neste computador.';
+        showCashNotice('Lançamento salvo no arquivo meu_caixa.json.', 'success');
+        return true;
+      } catch (e) {
+        cashbookServerSynced = false;
+        renderCashbook();
+        status.textContent = 'Salvo neste navegador; servidor indisponível.';
+        showCashNotice('O lançamento foi salvo neste navegador, mas não no arquivo do projeto: ' + (e.message || e) + '. Reinicie iniciar.bat para sincronizar.', 'warning');
+        return true;
+      }
+    }
+
+    function localDateTimeValue(date = new Date()) {
+      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 16);
+    }
+
+    function newCashId() {
+      return window.crypto?.randomUUID?.() || ('cash-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+    }
+
+    function renderCashFields() {
+      const type = document.getElementById('cashType').value;
+      const fields = document.getElementById('cashFields');
+      const field = (id, label, placeholder, step = '1', min = '1') => {
+        const integer = step === '1';
+        const attrs = integer ? 'type="text" inputmode="numeric" data-cash-integer="1" autocomplete="off"' : `type="number" min="${min}" step="${step}"`;
+        return `<label class="block text-sm text-gray-300">${label}<input id="${id}" ${attrs} required class="block mt-1 px-3 py-2 rounded-lg w-full" placeholder="${placeholder}"></label>`;
+      };
+      if (type === 'compra_diamantes') fields.innerHTML = field('cashDiamonds', 'Quantidade de diamantes comprados', 'ex.: 140') + field('cashMoney', 'Total pago (R$)', 'ex.: 40', '0.01');
+      else if (type === 'uso_diamantes') fields.innerHTML = field('cashUsedDiamonds', 'Diamantes usados/transferidos', 'ex.: 50');
+      else if (type === 'venda_diamantes_gold') fields.innerHTML = field('cashSoldDiamonds', 'Diamantes vendidos', 'ex.: 10') + field('cashReceivedGold', 'Gold recebido no jogo', 'ex.: 3750000');
+      else if (type === 'conversao_gold_reais') fields.innerHTML = field('cashConvertedGold', 'Gold vendido', 'ex.: 14000000') + field('cashReturnedMoney', 'Reais realmente recebidos pela venda', 'ex.: 14', '0.01');
+       else if (type === 'ajuste_saldo') fields.innerHTML = field('cashInitialDiamonds', 'Variação de diamantes (pode ser negativo)', 'ex.: -5', '1', '0') + field('cashInitialGold', 'Variação de gold (pode ser negativo)', 'ex.: 5000', '1', '0');
+       else if (type === 'saldo_atual') fields.innerHTML = field('cashInitialDiamonds', 'Diamantes disponíveis no jogo', 'ex.: 10', '1', '0') + field('cashInitialGold', 'Gold disponível no jogo', 'ex.: 10000', '1', '0');
+       else if (type === 'resumo') fields.innerHTML =
+         field('cashResumoDdBought', 'DD comprados', 'ex.: 430') +
+         field('cashResumoInvested', 'Total investido (R$)', 'ex.: 108,64', '0.01') +
+         field('cashResumoDdSold', 'DD vendidos', 'ex.: 423') +
+         field('cashResumoGoldSold', 'Gold vendido', 'ex.: 169000000') +
+         field('cashResumoReceived', 'Total recebido (R$)', 'ex.: 154', '0.01') +
+         field('cashResumoDdLeft', 'DD restantes', 'ex.: 7', '1', '0') +
+         field('cashResumoGoldLeft', 'Gold restante', 'ex.: 3000000', '1', '0');
+      else fields.innerHTML = field('cashInitialDiamonds', 'Saldo inicial de diamantes (pode deixar zero)', 'ex.: 140', '1', '0') + field('cashInitialGold', 'Saldo inicial de gold (pode deixar zero)', 'ex.: 14000000', '1', '0');
+    }
+
+    function cashInputNumber(id) {
+      const el = document.getElementById(id);
+      if (!el) return NaN;
+      const raw = String(el.value || '').trim();
+      if (el.dataset.cashInteger === '1') {
+        const digits = raw.replace(/[.\s]/g, '');
+        return /^\d+$/.test(digits) ? Number(digits) : NaN;
+      }
+      return Number(raw.replace(',', '.'));
+    }
+
+    function buildCashEntry() {
+      const type = document.getElementById('cashType').value;
+      const dateValue = document.getElementById('cashDate').value;
+      if (!dateValue || !Number.isFinite(new Date(dateValue).getTime())) throw new Error('Informe uma data válida.');
+      const row = { id: cashEditingId || newCashId(), tipo: type, data: new Date(dateValue).toISOString(), origem: 'manual', observacao: document.getElementById('cashNote').value.trim() };
+      if (row.observacao.length > 500) throw new Error('A observação pode ter até 500 caracteres.');
+      if (type === 'compra_diamantes') {
+        row.quantidadeDiamantes = cashInputNumber('cashDiamonds'); row.valorReais = cashInputNumber('cashMoney');
+        if (!Number.isSafeInteger(row.quantidadeDiamantes) || row.quantidadeDiamantes <= 0 || !Number.isFinite(row.valorReais) || row.valorReais <= 0) throw new Error('Informe DD inteiro e valor pago maior que zero.');
+      } else if (type === 'uso_diamantes') {
+        row.quantidadeDiamantes = cashInputNumber('cashUsedDiamonds');
+        if (!Number.isSafeInteger(row.quantidadeDiamantes) || row.quantidadeDiamantes <= 0) throw new Error('Informe uma quantidade inteira de DD maior que zero.');
+        const availableLedger = cashLotLedger({ beforeTime: new Date(row.data).getTime(), excludeEntryId: cashEditingId });
+        const available = availableLedger.lots.reduce((sum, lot) => sum + lot.remaining, 0);
+        if (row.quantidadeDiamantes > available) throw new Error('Pela regra FIFO, há apenas ' + fmt(available) + ' diamantes de lotes anteriores disponíveis nessa data.');
+      } else if (type === 'venda_diamantes_gold') {
+        row.quantidadeDiamantesVendidas = cashInputNumber('cashSoldDiamonds'); row.quantidadeGoldRecebida = cashInputNumber('cashReceivedGold');
+        if (!Number.isSafeInteger(row.quantidadeDiamantesVendidas) || row.quantidadeDiamantesVendidas <= 0 || !Number.isSafeInteger(row.quantidadeGoldRecebida) || row.quantidadeGoldRecebida <= 0) throw new Error('Informe quantidades inteiras de diamantes e gold maiores que zero.');
+        const availableLedger = cashLotLedger({ beforeTime: new Date(row.data).getTime(), excludeEntryId: cashEditingId });
+        const available = availableLedger.lots.reduce((sum, lot) => sum + lot.remaining, 0);
+        if (row.quantidadeDiamantesVendidas > available) throw new Error('Pela regra FIFO, há apenas ' + fmt(available) + ' diamantes de lotes anteriores disponíveis nessa data. Confira as datas ou registre o saldo inicial de DD.');
+      } else if (type === 'conversao_gold_reais') {
+        row.quantidadeGold = cashInputNumber('cashConvertedGold'); row.valorReais = cashInputNumber('cashReturnedMoney');
+        if (!Number.isSafeInteger(row.quantidadeGold) || row.quantidadeGold <= 0 || !Number.isFinite(row.valorReais) || row.valorReais <= 0) throw new Error('Informe gold inteiro e reais recebidos maiores que zero.');
+       } else if (type === 'ajuste_saldo') {
+         const ddRaw = String(document.getElementById('cashInitialDiamonds').value || '').trim();
+         const goldRaw = String(document.getElementById('cashInitialGold').value || '').trim();
+         const ddDigits = ddRaw.replace(/[.\s]/g, '');
+         const goldDigits = goldRaw.replace(/[.\s]/g, '');
+         row.quantidadeDiamantes = /^-?\d+$/.test(ddDigits) ? Number(ddDigits) : NaN;
+         row.quantidadeGold = /^-?\d+$/.test(goldDigits) ? Number(goldDigits) : NaN;
+         if (!Number.isSafeInteger(row.quantidadeDiamantes) || !Number.isSafeInteger(row.quantidadeGold) || (row.quantidadeDiamantes === 0 && row.quantidadeGold === 0)) throw new Error('Informe variação inteira de DD, gold ou ambos (pode ser negativo).');
+         if (row.quantidadeDiamantes < 0) {
+           const availableLedger = cashLotLedger({ beforeTime: new Date(row.data).getTime(), excludeEntryId: cashEditingId });
+           const available = availableLedger.lots.reduce((sum, lot) => sum + lot.remaining, 0);
+           if (-row.quantidadeDiamantes > available) throw new Error('Pela regra FIFO, há apenas ' + fmt(available) + ' diamantes de lotes anteriores disponíveis nessa data.');
+          }
+       } else if (type === 'saldo_atual') {
+         row.quantidadeDiamantes = cashInputNumber('cashInitialDiamonds'); row.quantidadeGold = cashInputNumber('cashInitialGold');
+         if (!Number.isSafeInteger(row.quantidadeDiamantes) || row.quantidadeDiamantes < 0 || !Number.isSafeInteger(row.quantidadeGold) || row.quantidadeGold < 0 || (row.quantidadeDiamantes === 0 && row.quantidadeGold === 0)) throw new Error('Informe saldo inteiro de DD, gold ou ambos.');
+       } else if (type === 'resumo') {
+         row.quantidadeDiamantesComprados = cashInputNumber('cashResumoDdBought');
+         row.valorInvestidoReais = cashInputNumber('cashResumoInvested');
+         row.quantidadeDiamantesVendidos = cashInputNumber('cashResumoDdSold');
+         row.quantidadeGoldVendida = cashInputNumber('cashResumoGoldSold');
+         row.valorRecebidoReais = cashInputNumber('cashResumoReceived');
+         row.quantidadeDiamantesRestantes = cashInputNumber('cashResumoDdLeft');
+         row.quantidadeGoldRestante = cashInputNumber('cashResumoGoldLeft');
+         const inteiros = [row.quantidadeDiamantesComprados, row.quantidadeDiamantesVendidos, row.quantidadeGoldVendida, row.quantidadeDiamantesRestantes, row.quantidadeGoldRestante];
+         if (inteiros.some(v => !Number.isSafeInteger(v) || v < 0) || !Number.isFinite(row.valorInvestidoReais) || row.valorInvestidoReais < 0 || !Number.isFinite(row.valorRecebidoReais) || row.valorRecebidoReais < 0) throw new Error('Preencha o resumo com DD/gold inteiros e reais maiores ou iguais a zero.');
+      } else {
+        row.quantidadeDiamantes = cashInputNumber('cashInitialDiamonds'); row.quantidadeGold = cashInputNumber('cashInitialGold');
+        if (!Number.isSafeInteger(row.quantidadeDiamantes) || row.quantidadeDiamantes < 0 || !Number.isSafeInteger(row.quantidadeGold) || row.quantidadeGold < 0 || (row.quantidadeDiamantes === 0 && row.quantidadeGold === 0)) throw new Error('Informe saldo inicial inteiro de DD, gold ou ambos.');
+      }
+      return row;
+    }
+
+    async function submitCashEntry(event) {
+      event.preventDefault();
+      const status = document.getElementById('cashFormStatus');
+      try {
+        const entry = buildCashEntry();
+        let initialGoldAdjustment = null;
+        if (entry.tipo === 'conversao_gold_reais') {
+          const totals = cashTotals();
+          const existing = cashbook.lancamentos.find(x => x.id === cashEditingId && x.tipo === 'conversao_gold_reais');
+          const available = totals.goldPending + (existing?.quantidadeGold || 0);
+          if (entry.quantidadeGold > available) {
+            const missing = entry.quantidadeGold - available;
+            const aceita = confirm('O Meu caixa só tem ' + fmt(Math.max(0, available)) + ' gold registrado, mas você informou uma venda de ' + fmt(entry.quantidadeGold) + '. Quer registrar também um ajuste de saldo anterior de ' + fmt(missing) + ' gold? Isso permite lançar gold que você já tinha antes de começar o controle.');
+            if (!aceita) { status.textContent = 'Lançamento cancelado; nada foi salvo.'; showCashNotice(status.textContent, 'warning'); return; }
+            initialGoldAdjustment = { id: newCashId(), tipo: 'ajuste_inicial', data: entry.data, quantidadeDiamantes: 0, quantidadeGold: missing, origem: 'manual', observacao: 'Saldo de gold anterior ao início do acompanhamento, informado ao registrar venda de gold.' };
+          }
+        }
+        const old = cashbook.lancamentos;
+        const editing = cashEditingId;
+        cashbook.lancamentos = editing ? old.map(r => r.id === editing ? entry : r) : [...old, entry];
+        if (initialGoldAdjustment) cashbook.lancamentos.push(initialGoldAdjustment);
+        if (!await saveCashbook()) {
+          cashbook.lancamentos = old;
+          renderCashbook();
+          status.textContent = 'Não foi possível salvar o lançamento. Confira a mensagem acima.';
+          showCashNotice(status.textContent, 'error');
+          return;
+        }
+        resetCashForm();
+        const savedMsg = (editing ? 'Lançamento atualizado' : 'Lançamento salvo') +
+          (initialGoldAdjustment ? ' com ajuste de saldo anterior de ' + fmt(initialGoldAdjustment.quantidadeGold) + ' gold.' : '.');
+        status.textContent = savedMsg;
+        showCashNotice(savedMsg + (cashbookServerSynced ? '' : ' Ficou salvo neste navegador; o servidor não confirmou o arquivo.'), cashbookServerSynced ? 'success' : 'warning');
+      } catch (e) {
+        const message = 'Não foi possível salvar o lançamento: ' + (e && e.message ? e.message : e);
+        status.textContent = message;
+        showCashNotice(message, 'error');
+      }
+    }
+
+    async function submitCurrentBalance(event) {
+      event.preventDefault();
+      const status = document.getElementById('cashBalanceStatus');
+      try {
+        const dd = cashInputNumber('cashSetDiamonds');
+        const gold = cashInputNumber('cashSetGold');
+        if (!Number.isSafeInteger(dd) || dd < 0 || !Number.isSafeInteger(gold) || gold < 0) {
+          throw new Error('Digite valores inteiros iguais ou maiores que zero para diamantes e gold. Pode usar ponto de milhar (ex.: 53.000.000).');
+        }
+        const currentTotals = cashTotals();
+        const ddDiff = dd - (Number(currentTotals.diamondsBalance) || 0);
+        const goldDiff = gold - (Number(currentTotals.goldPending) || 0);
+        const newEntries = [];
+        const now = new Date().toISOString();
+        let aviso = '';
+        if (ddDiff < 0) {
+          const saida = -ddDiff;
+          const availableLedger = cashLotLedger({ beforeTime: Date.now() + 1 });
+          const availableDd = availableLedger.lots.reduce((s, l) => s + l.remaining, 0);
+          if (saida > availableDd) {
+            aviso = 'Atenção: ' + fmt(saida - availableDd) + ' DD não puderam ser ligados a lotes anteriores; o FIFO vai mostrá-los como "sem lote".';
+          }
+          if (goldDiff > 0) {
+            newEntries.push({
+              id: newCashId(), tipo: 'venda_diamantes_gold', data: now, origem: 'manual',
+              observacao: 'Criado automaticamente pela variação de saldo (' + saida + ' DD vendidos → ' + fmt(goldDiff) + ' gold).',
+              quantidadeDiamantesVendidas: saida, quantidadeGoldRecebida: goldDiff
+            });
+          } else {
+            newEntries.push({
+              id: newCashId(), tipo: 'uso_diamantes', data: now, origem: 'manual',
+              observacao: 'Criado automaticamente pela variação de saldo (' + saida + ' DD usados/transferidos).',
+              quantidadeDiamantes: saida
+            });
+            if (goldDiff < 0) {
+              newEntries.push({
+                id: newCashId(), tipo: 'ajuste_saldo', data: now, origem: 'manual',
+                observacao: 'Ajuste automático do gold para igualar ao saldo informado (' + goldDiff + ' gold).',
+                quantidadeDiamantes: 0, quantidadeGold: goldDiff
+              });
+            }
+          }
+        } else if (ddDiff !== 0 || goldDiff !== 0) {
+          newEntries.push({
+            id: newCashId(), tipo: 'ajuste_saldo', data: now, origem: 'manual',
+            observacao: 'Ajuste automático para igualar ao saldo informado (' + (ddDiff >= 0 ? '+' : '') + ddDiff + ' DD, ' + (goldDiff >= 0 ? '+' : '') + goldDiff + ' gold).',
+            quantidadeDiamantes: ddDiff, quantidadeGold: goldDiff
+          });
+        }
+        const snapshot = {
+          id: newCashId(), tipo: 'saldo_atual', data: now, origem: 'manual',
+          observacao: 'Saldo atual informado pelo usuário.', quantidadeDiamantes: dd, quantidadeGold: gold
+        };
+        newEntries.push(snapshot);
+        const old = cashbook.lancamentos;
+        cashbook.lancamentos = [...old, ...newEntries];
+        if (!await saveCashbook()) {
+          cashbook.lancamentos = old;
+          renderCashbook();
+          throw new Error('Não foi possível salvar o saldo. Confira a mensagem acima.');
+        }
+        const baseMsg = 'Saldo atual registrado: ' + fmt(dd) + ' diamantes e ' + fmt(gold) + ' gold.';
+        status.textContent = baseMsg + (aviso ? ' ' + aviso : '');
+        status.className = 'text-sm mt-3 ' + (aviso ? 'text-amber-300' : 'text-green-300');
+        if (cashbookServerSynced) {
+          showCashNotice(status.textContent + ' Os registros posteriores passam a ser calculados a partir deste saldo.', aviso ? 'warning' : 'success');
+        } else {
+          showCashNotice(status.textContent + ' Ficou salvo neste navegador; reinicie o servidor para sincronizar com o arquivo do projeto.', 'warning');
+        }
+      } catch (e) {
+        const message = 'Não foi possível registrar o saldo: ' + (e && e.message ? e.message : e);
+        status.textContent = message;
+        status.className = 'text-sm text-red-300 mt-3';
+        showCashNotice(message, 'error');
+      }
+    }
+
+    function resetCashForm() {
+      cashEditingId = null;
+      document.getElementById('cashForm').reset();
+      document.getElementById('cashType').value = 'compra_diamantes';
+      document.getElementById('cashDate').value = localDateTimeValue();
+      document.getElementById('cashNote').value = '';
+      document.getElementById('cashSave').textContent = 'Salvar lançamento';
+      document.getElementById('cashCancelEdit').classList.add('hidden');
+      renderCashFields();
+    }
+
+    function editCashEntry(id) {
+      const row = cashbook.lancamentos.find(r => r.id === id);
+      if (!row) {
+        const message = 'Lançamento não encontrado; atualize a página.';
+        document.getElementById('cashFormStatus').textContent = message;
+        showCashNotice(message, 'error');
+        return;
+      }
+      cashEditingId = id;
+      document.getElementById('cashType').value = row.tipo;
+      renderCashFields();
+      document.getElementById('cashDate').value = localDateTimeValue(new Date(row.data));
+      document.getElementById('cashNote').value = row.observacao || '';
+      if (row.tipo === 'compra_diamantes') { document.getElementById('cashDiamonds').value = row.quantidadeDiamantes; document.getElementById('cashMoney').value = row.valorReais; }
+      else if (row.tipo === 'uso_diamantes') document.getElementById('cashUsedDiamonds').value = row.quantidadeDiamantes;
+      else if (row.tipo === 'venda_diamantes_gold') { document.getElementById('cashSoldDiamonds').value = row.quantidadeDiamantesVendidas; document.getElementById('cashReceivedGold').value = row.quantidadeGoldRecebida; }
+      else if (row.tipo === 'conversao_gold_reais') { document.getElementById('cashConvertedGold').value = row.quantidadeGold; document.getElementById('cashReturnedMoney').value = row.valorReais; }
+      else if (row.tipo === 'resumo') {
+        document.getElementById('cashResumoDdBought').value = row.quantidadeDiamantesComprados;
+        document.getElementById('cashResumoInvested').value = row.valorInvestidoReais;
+        document.getElementById('cashResumoDdSold').value = row.quantidadeDiamantesVendidos;
+        document.getElementById('cashResumoGoldSold').value = row.quantidadeGoldVendida;
+        document.getElementById('cashResumoReceived').value = row.valorRecebidoReais;
+        document.getElementById('cashResumoDdLeft').value = row.quantidadeDiamantesRestantes;
+        document.getElementById('cashResumoGoldLeft').value = row.quantidadeGoldRestante;
+      }
+      else { document.getElementById('cashInitialDiamonds').value = row.quantidadeDiamantes; document.getElementById('cashInitialGold').value = row.quantidadeGold; }
+      document.getElementById('cashSave').textContent = 'Salvar alterações';
+      document.getElementById('cashCancelEdit').classList.remove('hidden');
+      document.getElementById('cashForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    async function deleteCashEntry(id) {
+      const status = document.getElementById('cashFormStatus');
+      const row = cashbook.lancamentos.find(r => r.id === id);
+      if (!row) {
+        status.textContent = 'Lançamento não encontrado; atualize a página.';
+        showCashNotice(status.textContent, 'error');
+        return;
+      }
+      if (!confirm('Apagar este lançamento?')) {
+        showCashNotice('Exclusão cancelada; nada foi apagado.', 'info');
+        return;
+      }
+      const old = cashbook.lancamentos;
+      cashbook.lancamentos = old.filter(r => r.id !== id);
+      if (!await saveCashbook()) {
+        cashbook.lancamentos = old;
+        renderCashbook();
+        status.textContent = 'Não foi possível apagar o lançamento. Confira a mensagem acima.';
+        showCashNotice(status.textContent, 'error');
+        return;
+      }
+      if (cashEditingId === id) resetCashForm();
+      status.textContent = 'Lançamento apagado.';
+      showCashNotice('Lançamento apagado do arquivo meu_caixa.json.', 'success');
+    }
+
+    function downloadCashFile(name, content, type) {
+      const blob = new Blob(['\ufeff' + content], { type: type + ';charset=utf-8' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    function exportCashCsv() {
+      try {
+        const head = ['data','tipo','diamantes','gold','reais','observacao'];
+        const rows = cashbook.lancamentos.map(r => {
+          const dd = ['compra_diamantes','uso_diamantes'].includes(r.tipo) ? r.quantidadeDiamantes : r.tipo === 'venda_diamantes_gold' ? r.quantidadeDiamantesVendidas : r.tipo === 'resumo' ? r.quantidadeDiamantesVendidos : ['ajuste_inicial','ajuste_saldo','saldo_atual'].includes(r.tipo) ? r.quantidadeDiamantes : '';
+          const gold = r.tipo === 'venda_diamantes_gold' ? r.quantidadeGoldRecebida : r.tipo === 'conversao_gold_reais' ? r.quantidadeGold : r.tipo === 'resumo' ? r.quantidadeGoldVendida : ['ajuste_inicial','ajuste_saldo','saldo_atual'].includes(r.tipo) ? r.quantidadeGold : '';
+          const reais = r.tipo === 'resumo' ? r.valorRecebidoReais : (r.valorReais ?? '');
+          return [r.data,r.tipo,dd,gold,reais,r.observacao || ''].map(v => '"' + String(v).replace(/"/g,'""') + '"').join(';');
+        });
+        downloadCashFile('meu-caixa.csv', [head.join(';'), ...rows].join('\r\n'), 'text/csv');
+        showCashNotice('CSV exportado com ' + rows.length + ' lançamento(s).', 'success');
+      } catch (e) {
+        const message = 'Não foi possível exportar o CSV: ' + (e && e.message ? e.message : e);
+        document.getElementById('cashFormStatus').textContent = message;
+        showCashNotice(message, 'error');
+      }
+    }
+
+    function setStatus(msg, color = 'gray') {
+      document.getElementById('statusText').textContent = msg;
+      const dot = document.getElementById('statusDot');
+      dot.className = 'w-3 h-3 rounded-full ' + (color === 'green' ? 'bg-green-500' : color === 'red' ? 'bg-red-500' : color === 'yellow' ? 'bg-yellow-500' : 'bg-gray-500');
+    }
+
+    async function loadData() {
+      setStatus('Carregando...', 'yellow');
+      try {
+        const res = await fetch(DATA_URL);
+        const json = await res.json();
+        if (json.comprar || json.vender) {
+          data.comprar = (json.comprar?.ofertas || json.comprar || []).map(o => ({...o, lado: o.lado || 'comprar'}));
+          data.vender = (json.vender?.ofertas || json.vender || []).map(o => ({...o, lado: o.lado || 'vender'}));
+          try {
+            const hr = await fetch(HISTORY_URL);
+            history = hr.ok ? await hr.json() : [];
+          } catch (_) { history = []; }
+          updateUI();
+          const meta = json.meta || {};
+          const msg = 'Atualizado: ' + new Date().toLocaleTimeString() + (meta.totalComprar !== undefined ? ' | Comprar: ' + meta.totalComprar : '') + (meta.totalVender !== undefined ? ' | Vender: ' + meta.totalVender : '');
+          setStatus(msg, 'green');
+          return;
+        }
+      } catch (e) { console.warn(e); }
+      try {
+        const res = await fetch('./cambio_diamantes.json');
+        const json = await res.json();
+        data.comprar = (json.comprar?.ofertas || []).map(o => ({...o, lado: 'comprar'}));
+        data.vender = (json.vender?.ofertas || []).map(o => ({...o, lado: 'vender'}));
+        history = [];
+        updateUI();
+        setStatus('Dados locais carregados', 'green');
+      } catch (e) {
+        setStatus('Erro. Inicie o servidor (iniciar.bat).', 'red');
+      }
+    }
+
+    function updateKPIs() {
+      const buyRates = data.comprar.map(o => parseFloat(String(o.taxa).replace(/\./g,'').replace(',','.'))).filter(n=>!isNaN(n));
+      const sellRates = data.vender.map(o => parseFloat(String(o.taxa).replace(/\./g,'').replace(',','.'))).filter(n=>!isNaN(n));
+      document.getElementById('kpiBuy').textContent = buyRates.length ? fmt(Math.min(...buyRates)) : '—';
+      document.getElementById('kpiSell').textContent = sellRates.length ? fmt(Math.max(...sellRates)) : '—';
+      const spread = buyRates.length && sellRates.length ? Math.min(...buyRates) - Math.max(...sellRates) : null;
+      document.getElementById('kpiSpread').textContent = spread === null ? '—' : fmt(spread);
+      document.getElementById('kpiSpreadHint').textContent = spread === null ? 'ouro/diamante' : (Math.max(...sellRates) ? fmt(spread / Math.max(...sellRates) * 100, 1) + '% vs. maior em Vender' : 'ouro/diamante');
+      document.getElementById('kpiCount').textContent = data.comprar.length + data.vender.length;
+    }
+
+    function updateCharts() {
+      if (typeof Chart === 'undefined') return;
+      const buyRates = data.comprar.map(o => parseFloat(String(o.taxa).replace(/\./g,'').replace(',','.'))).filter(n=>!isNaN(n));
+      const sellRates = data.vender.map(o => parseFloat(String(o.taxa).replace(/\./g,'').replace(',','.'))).filter(n=>!isNaN(n));
+      if (charts.buy) charts.buy.destroy();
+      if (charts.sell) charts.sell.destroy();
+      charts.buy = new Chart(document.getElementById('chartBuy'), { type: 'bar', data: { labels: buyRates.map((_,i)=>i+1), datasets: [{ data: buyRates, backgroundColor: 'rgba(16,185,129,0.6)', borderColor: '#10b981', borderWidth: 1 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { ticks: { color: '#9ca3af' } } } } });
+      charts.sell = new Chart(document.getElementById('chartSell'), { type: 'bar', data: { labels: sellRates.map((_,i)=>i+1), datasets: [{ data: sellRates, backgroundColor: 'rgba(239,68,68,0.6)', borderColor: '#ef4444', borderWidth: 1 }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { ticks: { color: '#9ca3af' } } } } });
+    }
+
+    function renderTable() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const side = document.getElementById('filterSide').value;
+      const sort = document.getElementById('sortBy').value;
+      let rows = [...data.comprar, ...data.vender];
+      if (side !== 'all') rows = rows.filter(r => r.lado === side);
+      if (search) rows = rows.filter(r => (r.vendedor||'').toLowerCase().includes(search));
+      rows.sort((a,b) => {
+        const ta = parseFloat(String(a.taxa).replace(/\./g,'').replace(',','.'));
+        const tb = parseFloat(String(b.taxa).replace(/\./g,'').replace(',','.'));
+        const ra = parseFloat(String(a.recebe).replace(/\./g,'').replace(',','.'));
+        const rb = parseFloat(String(b.recebe).replace(/\./g,'').replace(',','.'));
+        if (sort === 'taxa-asc') return ta - tb;
+        if (sort === 'taxa-desc') return tb - ta;
+        if (sort === 'recebe-desc') return rb - ra;
+        return 0;
+      });
+      document.getElementById('tableBody').innerHTML = rows.map(r => {
+        const taxa = parseFloat(String(r.taxa).replace(/\./g,'').replace(',','.'));
+        const recebe = parseFloat(String(r.recebe).replace(/\./g,'').replace(',','.'));
+        const paga = parseFloat(String(r.paga).replace(/\./g,'').replace(',','.'));
+        return `<tr class="table-row border-b border-gray-800">
+          <td class="px-3 py-2"><span class="badge ${r.lado==='comprar'?'badge-buy':'badge-sell'}">${r.lado}</span></td>
+          <td class="px-3 py-2">${escapeHtml(r.vendedor||'—')}</td>
+          <td class="px-3 py-2 text-right font-mono">${fmt(taxa)}</td>
+          <td class="px-3 py-2 text-right font-mono">${fmt(recebe)}</td>
+          <td class="px-3 py-2 text-right font-mono">${fmt(paga)}</td>
+          <td class="px-3 py-2 text-center">${r.melhor ? '<span class="badge badge-best">★</span>' : ''}</td>
+        </tr>`;
+      }).join('');
+      document.getElementById('resultCount').textContent = `${rows.length} ofertas`;
+    }
+
+    function returnCalc() {
+      const qty = parseNum(document.getElementById('rQty').value);
+      const unitCost = parseNum(document.getElementById('rCost').value);
+      const sellRate = parseNum(document.getElementById('rSellRate').value);
+      const pix = parseNum(document.getElementById('rPix').value);
+      if (![qty, unitCost, sellRate, pix].every(Number.isFinite) || !(qty > 0) || unitCost < 0 || sellRate < 0 || !(pix > 0)) {
+        ['rInvestment','rBreakEvenGold','rBreakEvenPerDia','rGoldResult','rRevenue','rProfit','rRoi'].forEach(id => document.getElementById(id).textContent = '—');
+        return;
+      }
+      const investment = qty * unitCost;
+      const breakEvenGold = investment * 1000000 / pix;
+      const gold = qty * sellRate;
+      const revenue = gold * pix / 1000000;
+      const profit = revenue - investment;
+      document.getElementById('rInvestment').textContent = fmtMoney(investment);
+      document.getElementById('rBreakEvenGold').textContent = fmt(breakEvenGold);
+      document.getElementById('rBreakEvenPerDia').textContent = fmt(breakEvenGold / qty);
+      document.getElementById('rGoldResult').textContent = fmt(gold);
+      document.getElementById('rRevenue').textContent = fmtMoney(revenue);
+      const profitEl = document.getElementById('rProfit');
+      profitEl.textContent = fmtMoney(profit);
+      profitEl.className = 'font-bold ' + (profit >= 0 ? 'text-green-400' : 'text-red-400');
+      document.getElementById('rRoi').textContent = investment > 0 ? fmt(profit / investment * 100, 2) + '%' : '—';
+    }
+
+    function compareGoldRoutes() {
+      const gold = parseNum(document.getElementById('gAmount').value);
+      const pix = parseNum(document.getElementById('gPix').value);
+      const buyRate = parseNum(document.getElementById('gBuyRate').value);
+      const sellRate = parseNum(document.getElementById('gSellRate').value);
+      if (![gold, pix, buyRate, sellRate].every(Number.isFinite) || !(gold > 0) || !(pix > 0) || !(buyRate > 0) || sellRate < 0) {
+        ['gDirect','gDiamonds','gGoldAfter','gResaleValue','gDifference','gBest'].forEach(id => document.getElementById(id).textContent = '—');
+        return;
+      }
+      const direct = gold * pix / 1000000;
+      const diamonds = gold / buyRate;
+      const goldAfter = diamonds * sellRate;
+      const resaleValue = goldAfter * pix / 1000000;
+      const difference = resaleValue - direct;
+      document.getElementById('gDirect').textContent = fmtMoney(direct);
+      document.getElementById('gDiamonds').textContent = fmt(diamonds, 2);
+      document.getElementById('gGoldAfter').textContent = fmt(goldAfter);
+      document.getElementById('gResaleValue').textContent = fmtMoney(resaleValue);
+      document.getElementById('gDifference').textContent = fmtMoney(difference);
+      document.getElementById('gBest').textContent = difference > 0 ? 'Rota por diamantes (estimativa)' : difference < 0 ? 'Conversão direta (estimativa)' : 'Empate';
+    }
+
+    function updateUI() {
+      updateKPIs();
+      updateCharts();
+      updateHistoryChart();
+      updateOpportunities();
+      renderTable();
+      returnCalc();
+      compareGoldRoutes();
+    }
+
+    function updateOpportunities() {
+      const side = document.getElementById('oppSide').value;
+      const maxRate = parseNum(document.getElementById('oppMaxRate').value);
+      const minQty = Math.max(0, parseNum(document.getElementById('oppMinQty').value) || 0);
+      const qtyField = side === 'comprar' ? 'recebe' : 'paga';
+      const rows = data[side].map(o => ({...o, rate: parseNum(o.taxa), qty: parseNum(o[qtyField])}))
+        .filter(o => Number.isFinite(o.rate) && Number.isFinite(o.qty) && o.rate <= maxRate && o.qty >= minQty)
+        .sort((a,b) => a.rate - b.rate);
+      const list = document.getElementById('opportunityList');
+      list.innerHTML = rows.length ? rows.slice(0, 8).map(o => `<div class="flex justify-between gap-2 border-b border-gray-700 pb-2"><span><b>${escapeHtml(o.vendedor || 'Vendedor')}</b><span class="text-gray-500"> · ${fmt(o.qty)} diam.</span></span><span class="font-mono text-green-300">${fmt(o.rate)}</span></div>`).join('') : '<div class="text-gray-500">Nenhuma oferta atende aos filtros atuais.</div>';
+      const key = rows.length ? `${side}|${rows[0].vendedor}|${rows[0].rate}|${rows[0].qty}` : '';
+      const previous = localStorage.getItem(ALERT_KEY) || '';
+      if (key && key !== previous && localStorage.getItem('cambioDashboard.notifications') === '1' && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification('Nova oferta no radar', { body: `${rows[0].vendedor || 'Vendedor'} · ${fmt(rows[0].rate)} gold/diamante · ${fmt(rows[0].qty)} diamantes` });
+      }
+      if (key) localStorage.setItem(ALERT_KEY, key);
+      else localStorage.removeItem(ALERT_KEY);
+    }
+
+    function updateHistoryChart() {
+      const info = document.getElementById('historyInfo');
+      info.textContent = history.length ? `${history.length.toLocaleString('pt-BR')} coletas · até 7 dias` : 'O histórico começa após a próxima coleta';
+      if (typeof Chart === 'undefined') return;
+      const step = Math.max(1, Math.ceil(history.length / 500));
+      const points = history.filter((_, i) => i % step === 0 || i === history.length - 1);
+      const labels = points.map(p => new Date(p.timestamp).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}));
+      if (charts.history) charts.history.destroy();
+      charts.history = new Chart(document.getElementById('chartHistory'), { type: 'line', data: { labels, datasets: [
+        { label: 'Comprar', data: points.map(p => p.comprar?.melhor), borderColor: '#34d399', backgroundColor: '#34d399', spanGaps: true, pointRadius: 0 },
+        { label: 'Vender', data: points.map(p => p.vender?.melhor), borderColor: '#fb7185', backgroundColor: '#fb7185', spanGaps: true, pointRadius: 0 }
+      ] }, options: { responsive: true, interaction: { intersect: false, mode: 'index' }, plugins: { legend: { labels: { color: '#cbd5e1' } } }, scales: { x: { ticks: { color: '#9ca3af', maxTicksLimit: 8 } }, y: { ticks: { color: '#9ca3af', callback: v => fmt(v) } } } } });
+    }
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(b => { b.classList.remove('tab-active'); b.classList.add('tab-inactive'); });
+        btn.classList.remove('tab-inactive'); btn.classList.add('tab-active');
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+        document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+      });
+    });
+
+    // Meu caixa (somente lançamentos manuais nesta versão)
+    document.getElementById('cashType').addEventListener('change', () => renderCashFields());
+    document.getElementById('cashForm').addEventListener('submit', submitCashEntry);
+    document.getElementById('cashBalanceForm').addEventListener('submit', submitCurrentBalance);
+    document.getElementById('cashCancelEdit').addEventListener('click', resetCashForm);
+    document.getElementById('cashEntries').addEventListener('click', event => {
+      const edit = event.target.closest('[data-cash-edit]');
+      const remove = event.target.closest('[data-cash-delete]');
+      if (edit) editCashEntry(edit.getAttribute('data-cash-edit'));
+      else if (remove) deleteCashEntry(remove.getAttribute('data-cash-delete'));
+    });
+    document.getElementById('cashGoldRate').addEventListener('change', async event => {
+      const input = event.currentTarget;
+      const status = document.getElementById('cashFormStatus');
+      const value = Number(input.value);
+      if (!Number.isFinite(value) || value <= 0 || value > 1000000) {
+        input.value = cashbook.config.reaisPorMilhaoGold;
+        status.textContent = 'Cotação inválida: informe um valor positivo de até R$ 1.000.000 por milhão.';
+        showCashNotice(status.textContent, 'error');
+        return;
+      }
+      const previous = cashbook.config.reaisPorMilhaoGold;
+      cashbook.config.reaisPorMilhaoGold = value;
+      if (!await saveCashbook()) {
+        cashbook.config.reaisPorMilhaoGold = previous;
+        input.value = previous;
+        renderCashbook();
+        status.textContent = 'Não foi possível salvar a cotação. Confira a mensagem acima.';
+        showCashNotice(status.textContent, 'error');
+        return;
+      }
+      status.textContent = 'Cotação salva: R$ ' + fmt(value, 2) + ' por 1 milhão de gold.';
+      showCashNotice(status.textContent, 'success');
+    });
+    document.getElementById('cashExportCsv').addEventListener('click', exportCashCsv);
+    document.getElementById('cashExportJson').addEventListener('click', () => {
+      try {
+        downloadCashFile('meu-caixa.json', JSON.stringify(cashbook, null, 2), 'application/json');
+        showCashNotice('JSON exportado com ' + (cashbook.lancamentos || []).length + ' lançamento(s).', 'success');
+      } catch (e) {
+        const message = 'Não foi possível exportar o JSON: ' + (e && e.message ? e.message : e);
+        document.getElementById('cashFormStatus').textContent = message;
+        showCashNotice(message, 'error');
+      }
+    });
+    initCashFilters();
+    renderCashFields();
+    document.getElementById('cashDate').value = localDateTimeValue();
+
+    // Calc mode
+    document.getElementById('calcMode').addEventListener('change', (e) => {
+      document.querySelectorAll('.calc-mode').forEach(m => m.classList.add('hidden'));
+      document.getElementById('mode-' + e.target.value).classList.remove('hidden');
+    });
+
+    document.getElementById('btnRefresh').addEventListener('click', () => {
+      try { localStorage.removeItem(CASH_LOCAL_KEY); } catch (_) {}
+      window.location.reload();
+    });
+    ['oppSide','oppMaxRate','oppMinQty'].forEach(id => document.getElementById(id).addEventListener('input', updateOpportunities));
+    document.getElementById('btnNotifications').addEventListener('click', async () => {
+      if (!('Notification' in window)) { alert('Este navegador não oferece notificações.'); return; }
+      const permission = await Notification.requestPermission();
+      const enabled = permission === 'granted';
+      localStorage.setItem('cambioDashboard.notifications', enabled ? '1' : '0');
+      document.getElementById('btnNotifications').textContent = enabled ? 'Alertas ativos' : 'Ativar alertas';
+      if (!enabled) alert('Permissão de notificações não concedida. Os alertas continuam desativados.');
+      updateOpportunities();
+    });
+    document.getElementById('searchInput').addEventListener('input', renderTable);
+    document.getElementById('filterSide').addEventListener('change', renderTable);
+    document.getElementById('sortBy').addEventListener('change', renderTable);
+    ['rQty','rCost','rSellRate','rPix'].forEach(id => document.getElementById(id).addEventListener('input', returnCalc));
+    ['gAmount','gPix','gBuyRate','gSellRate'].forEach(id => document.getElementById(id).addEventListener('input', compareGoldRoutes));
+    returnCalc();
+    compareGoldRoutes();
+
+    loadData();
+    loadCashbook();
+    if (localStorage.getItem('cambioDashboard.notifications') === '1' && 'Notification' in window && Notification.permission === 'granted') document.getElementById('btnNotifications').textContent = 'Alertas ativos';
+    setInterval(loadData, 1 * 60 * 1000);
+  </script>
+</body>
+</html>
